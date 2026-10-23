@@ -1,0 +1,304 @@
+{
+  "name": "Assistente de Investimentos - RPA + IA (DIO)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "clientes-investimento",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "02e16f17-4d00-4a5f-ab03-f56accf751bb",
+      "name": "Webhook (Entrada RPA)",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        -576,
+        -128
+      ],
+      "webhookId": "dio-assistente-investimentos-rpa"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Suporta tanto { \"clientes\": [...] } quanto um array direto [...] ou item único\nconst payload = $input.first().json;\nconst body = payload.body ? payload.body : payload;\n\nlet listaClientes = [];\nif (Array.isArray(body.clientes)) {\n  listaClientes = body.clientes;\n} else if (Array.isArray(body)) {\n  listaClientes = body;\n} else {\n  listaClientes = [body];\n}\n\nreturn listaClientes.map(cliente => {\n  const perfilBruto = cliente.perfil || cliente.Perfil || \"\";\n  return {\n    json: {\n      nome: cliente.nome || cliente.Nome || \"Cliente\",\n      email: cliente.email || cliente.Email || \"\",\n      saldo: cliente.saldo || cliente.Saldo || \"0\",\n      perfil: perfilBruto,\n      perfil_chave: perfilBruto.toString().trim().toLowerCase()\n    }\n  };\n});"
+      },
+      "id": "4c16bc2a-1161-46ba-babc-27d7fd3af538",
+      "name": "Code (Separar Clientes)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        96,
+        -224
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://digitalinnovationone.github.io/dio-lab-assistente-investimentos-rpa-n8n/data.csv",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          }
+        }
+      },
+      "id": "4e5aadcb-5c4a-41b3-b337-aa9ec2370adf",
+      "name": "HTTP Request (Baixar data.csv)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -352,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "62ebc285-ce31-436a-93da-f6d2f3ed6503",
+      "name": "Extract from File (Ler CSV)",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        -128,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normaliza a coluna de perfil do CSV para garantir o cruzamento exato no Merge\nreturn $input.all().map(item => {\n  const row = item.json;\n  const perfilCsv = row.perfil || row.Perfil || Object.values(row)[0] || \"\";\n  return {\n    json: {\n      ...row,\n      perfil_chave: perfilCsv.toString().trim().toLowerCase()\n    }\n  };\n});"
+      },
+      "id": "bac9d35b-22af-41dd-a379-45b66634417a",
+      "name": "Code (Normalizar CSV)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        96,
+        -32
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "options": {}
+      },
+      "id": "58615367-902a-4d44-933a-8d4bb269ece9",
+      "name": "Merge (Clientes x Investimentos)",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [
+        320,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const item = $input.item.json;\nconst perfil = (item.perfil_chave || \"\").toLowerCase();\n\nlet estrategia = \"\";\nswitch (perfil) {\n  case \"conservador\":\n    estrategia = \"Foco em renda fixa, liquidez e preservação de patrimônio com alta segurança.\";\n    break;\n  case \"moderado\":\n    estrategia = \"Mix equilibrado entre a segurança da renda fixa e o potencial da renda variável.\";\n    break;\n  case \"arrojado\":\n    estrategia = \"Ênfase em ações, fundos multimercado e maior potencial de retorno no longo prazo.\";\n    break;\n  default:\n    estrategia = \"Diversificação inteligente alinhada aos seus objetivos financeiros.\";\n}\n\nconst opcaoRecomendada = item.produto || item.investimento || item.opcoes || item.recomendacao || item.ativo || \"Carteira Recomendada por Perfil\";\n\nconst mensagemMvp = `Olá, ${item.nome}! Com base no seu perfil ${item.perfil} e saldo disponível de R$ ${item.saldo}, nossa recomendação para você hoje é: ${opcaoRecomendada}. Diretriz da carteira: ${estrategia}`;\n\nreturn {\n  json: {\n    ...item,\n    opcao_recomendada: opcaoRecomendada,\n    estrategia_base: estrategia,\n    mensagem_mvp: mensagemMvp\n  }\n};"
+      },
+      "id": "f4911a71-8f47-47d7-b9b9-b1afc699dfbf",
+      "name": "Code (Template MVP + Contexto)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        544,
+        -128
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Você é um assessor de investimentos sênior. Escreva um e-mail curto, cordial e altamente personalizado para o cliente abaixo, apresentando uma recomendação de investimento compatível com o perfil e o saldo dele.\n\nDados do Cliente:\n- Nome: {{ $json.nome }}\n- Perfil de Investidor: {{$json.perfil }}\n- Saldo Disponível: R${{$json.saldo }}\n- Opção Recomendada (Catálogo): {{ $json.opcao_recomendada }}\n- Diretriz do Perfil: {{$json.estrategia_base }}\n\nRegras:\n1. Use um tom consultivo, humano e transparente (sem prometer ganhos garantidos em renda variável).\n2. Explique brevemente por que essa opção faz sentido para o saldo e perfil dele.\n3. Retorne apenas o corpo do e-mail em HTML simples (usando <p>, <strong>, <br>), sem linha de assunto e sem blocos de markdown (não use ```html).",
+        "options": {}
+      },
+      "id": "faf50a77-c8ce-47cc-9da8-fcf04da1112b",
+      "name": "AI Agent (Gerador de Email)",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.7,
+      "position": [
+        768,
+        32
+      ]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "5d3a9408-4620-4f43-a077-bb7628fcf5cd",
+      "name": "Google Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        656,
+        256
+      ],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "oHG7b3MxmlFFDyfI",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $('Code (Template MVP + Contexto)').item.json.email }}",
+        "subject": "=Recomendação de Investimento Personalizada para {{ $('Code (Template MVP + Contexto)').item.json.nome }}",
+        "message": "={{ $json.output || $('Code (Template MVP + Contexto)').item.json.mensagem_mvp }}",
+        "options": {}
+      },
+      "id": "53164186-eebc-4dd8-a36e-641558c2148b",
+      "name": "Gmail (Disparar Recomendação)",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        1120,
+        32
+      ],
+      "webhookId": "b05fae00-e387-4a0f-9b33-6578b6d7313d",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "dSvsLZPD22yPTuH0",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        832,
+        -272
+      ],
+      "id": "f4de2017-cfa4-4a96-96e5-6135053cd954",
+      "name": "Respond to Webhook"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook (Entrada RPA)": {
+      "main": [
+        [
+          {
+            "node": "Code (Separar Clientes)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "HTTP Request (Baixar data.csv)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code (Separar Clientes)": {
+      "main": [
+        [
+          {
+            "node": "Merge (Clientes x Investimentos)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (Baixar data.csv)": {
+      "main": [
+        [
+          {
+            "node": "Extract from File (Ler CSV)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File (Ler CSV)": {
+      "main": [
+        [
+          {
+            "node": "Code (Normalizar CSV)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code (Normalizar CSV)": {
+      "main": [
+        [
+          {
+            "node": "Merge (Clientes x Investimentos)",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge (Clientes x Investimentos)": {
+      "main": [
+        [
+          {
+            "node": "Code (Template MVP + Contexto)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code (Template MVP + Contexto)": {
+      "main": [
+        [
+          {
+            "node": "AI Agent (Gerador de Email)",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent (Gerador de Email)",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent (Gerador de Email)": {
+      "main": [
+        [
+          {
+            "node": "Gmail (Disparar Recomendação)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "versionId": "b1d8cbf7-b2c0-4808-a36c-7f4ab07a7d2f",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "aa9f99a65c1198cb2137fad42a8be0a8baa9b5acca0c6bfc1f218dee6e4b603b"
+  },
+  "nodeGroups": [],
+  "id": "qmtl8U9y8aAwCTbE",
+  "tags": []
+}
